@@ -1,82 +1,101 @@
 # JOB-AUTOMATION
 
-Production-oriented job discovery, matching, application-preparation and tracking system for Vijay Ramdev.
+Production-oriented job discovery, matching, application-preparation and tracking system.
 
-## What is live in this repository
+## Live web application
 
-- Daily GitHub Actions job hunt at 08:00 IST
-- Manual workflow trigger
-- Himalayas public JSON API collector
+One Render Web Service serves the FastAPI backend and the web dashboard from the same origin.
+
+The first visit shows **Login / Create account**. New users complete an onboarding profile with:
+
+- Internship, full-time, or both
+- Roles and skills
+- City/country
+- Remote preferences
+- Preferred/excluded countries
+- India work-eligibility preference
+- Education and graduation information
+
+The profile is stored per user in Neon PostgreSQL and drives screening/ranking.
+
+## Portal coverage
+
+The dashboard has a **Job Portals** command center with separate cards and per-portal screening actions.
+
+### Automated/public-source adapters
+
+- Himalayas public JSON API
+- Startup Jobs public RSS feeds
+- Top Startups public jobs page
+- The Hub public jobs page
+- Work in Startups public site
+- StartupMap public jobs pages
 - Configurable Greenhouse public-board collector
 - Configurable Lever public-postings collector
 - Configurable Ashby public job-board collector
-- Normalization and deterministic job fingerprints
-- India/worldwide eligibility filtering
-- Role + skill + student/entry-level matching
-- PostgreSQL persistence with upserts and indexes
-- Telegram daily report
-- Daily report artifact retained for 30 days
-- CI tests on pushes and pull requests
-- Application profile template
-- Human-approval safety policy for application execution
+- Remotive public API
+- Remote OK public API
+- Jobicy public API
+- Arbeitnow public API
 
-## Production architecture
+### Native/link-only portals
+
+- Wellfound — native portal/account flow is linked instead of using unauthorized automated scraping.
+- Welcome to the Jungle — native profile/matching flow is linked instead of bypassing its account/matching experience.
+
+The application never bypasses CAPTCHAs, authentication, anti-bot controls, or legal declarations.
+
+## Job workflow
 
 ```text
-Sources
-  -> Collectors
-  -> Normalize
-  -> Deduplicate
-  -> India eligibility
-  -> Match + score
-  -> PostgreSQL
-  -> Daily report
-  -> Telegram
-  -> Application review queue
-  -> Human approval
-  -> Permitted browser/form automation
-  -> Application tracking
+User login
+   -> onboarding profile
+   -> Run All Portals
+   -> portal adapters
+   -> normalize
+   -> deduplicate
+   -> eligibility + internship/full-time filtering
+   -> profile-aware match score
+   -> Neon PostgreSQL
+   -> portal/source cards
+   -> job detail cards
+   -> application review queue
+   -> human approval
 ```
 
-## Important application policy
+Opening a job card shows the portal source, score, matching reasons, job description and the original application link.
 
-The system is approval-first. It can prepare resumes, cover letters, application answers and form data, but it must not bypass CAPTCHA, authentication, anti-bot controls, or legal declarations, and it must not invent candidate information. Sensitive questions stop for human review.
+## Database
 
-## GitHub Actions configuration
+Neon/PostgreSQL stores jobs, users, secure session hashes, per-user profiles, applications and portal screening runs.
 
-Required **Repository Secrets**:
+Never commit `DATABASE_URL` or any database credential to GitHub. Keep it in Render/GitHub secret storage.
+
+## Automation
+
+GitHub Actions runs the scheduled hunt. The web dashboard also provides a manual **Run All Portals** action for the signed-in user.
+
+Required GitHub/Render secrets include:
 
 - `DATABASE_URL`
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 
-Optional **Repository Variables**:
+Optional source configuration:
 
-- `GREENHOUSE_BOARDS` — comma-separated public Greenhouse board slugs
-- `LEVER_SITES` — comma-separated Lever site slugs
-- `ASHBY_BOARDS` — comma-separated Ashby public job-board slugs
+- `GREENHOUSE_BOARDS`
+- `LEVER_SITES`
+- `ASHBY_BOARDS`
 
-The default daily workflow already searches the user's target role families through Himalayas.
+## Safety
 
-## Local run
+The system is approval-first. It can prepare resumes, cover letters, application answers and form data, but it must not bypass CAPTCHA, authentication, anti-bot controls or legal declarations, and it must not invent candidate information. Sensitive questions stop for human review.
+
+## Run locally
 
 ```bash
 pip install -r requirements.txt
-python -m job_agent
-pytest -q
+uvicorn web.app:app --host 127.0.0.1 --port 8000
 ```
 
-For PostgreSQL persistence locally:
-
-```bash
-set DATABASE_URL=postgresql://...
-python -m job_agent
-```
-
-## Next production layer
-
-The discovery and tracking foundation is now implemented. The next layer is the application workspace: resume variants, tailored cover letters, structured application answers, approval UI, application event history, permitted Playwright form filling, deadline monitoring, and a dashboard/API.
-
-## Data-source note
-
-Himalayas is used through its public JSON API. When its data is displayed in a UI, retain source attribution and a link back to Himalayas as required by its API documentation.
+Then open `http://127.0.0.1:8000`.
