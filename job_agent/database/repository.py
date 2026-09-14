@@ -32,17 +32,42 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);
 CREATE INDEX IF NOT EXISTS idx_jobs_deadline ON jobs(deadline);
 
+CREATE TABLE IF NOT EXISTS users (
+ id BIGSERIAL PRIMARY KEY,
+ email TEXT UNIQUE NOT NULL,
+ password_hash TEXT NOT NULL,
+ created_at TIMESTAMPTZ DEFAULT NOW(),
+ last_login_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS user_profiles (
+ user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+ profile JSONB NOT NULL DEFAULT '{}'::jsonb,
+ updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS sessions (
+ id BIGSERIAL PRIMARY KEY,
+ user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ token_hash TEXT UNIQUE NOT NULL,
+ expires_at TIMESTAMPTZ NOT NULL,
+ created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+
 CREATE TABLE IF NOT EXISTS applications (
  id BIGSERIAL PRIMARY KEY,
  job_id BIGINT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+ user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
  status TEXT NOT NULL DEFAULT 'READY_FOR_REVIEW',
  resume_variant TEXT,
  cover_letter TEXT,
  prepared_answers JSONB DEFAULT '{}'::jsonb,
  submitted_at TIMESTAMPTZ,
- updated_at TIMESTAMPTZ DEFAULT NOW(),
- UNIQUE(job_id)
+ updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE applications DROP CONSTRAINT IF EXISTS applications_job_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_user_job ON applications(user_id, job_id) WHERE user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
 '''
 
@@ -77,13 +102,12 @@ class JobRepository:
             c.commit()
             return row["id"]
 
-    def queue_application(self, job_id: int, resume_variant: str):
+    def queue_application(self, job_id: int, resume_variant: str, user_id=None):
         with self.conn() as c:
-            c.execute("""
-                INSERT INTO applications(job_id, status, resume_variant)
-                VALUES (%s, 'READY_FOR_REVIEW', %s)
-                ON CONFLICT(job_id) DO NOTHING
-            """, (job_id, resume_variant))
+            if user_id:
+                c.execute("""INSERT INTO applications(job_id,user_id,status,resume_variant) VALUES (%s,%s,'READY_FOR_REVIEW',%s) ON CONFLICT(user_id,job_id) WHERE user_id IS NOT NULL DO NOTHING""", (job_id,user_id,resume_variant))
+            else:
+                c.execute("""INSERT INTO applications(job_id,status,resume_variant) VALUES (%s,'READY_FOR_REVIEW',%s) ON CONFLICT DO NOTHING""", (job_id,resume_variant))
             c.commit()
 
     def update_application_status(self, application_id: int, status: str):
@@ -96,34 +120,55 @@ class JobRepository:
 
     def expiring(self, hours=72):
         with self.conn() as c:
-            return c.execute("""
-                SELECT title, company, url, score, deadline FROM jobs
-                WHERE deadline IS NOT NULL AND deadline > NOW() AND deadline <= NOW() + (%s * INTERVAL '1 hour')
-                ORDER BY deadline ASC
-            """, (hours,)).fetchall()
+            return c.execute("""SELECT title, company, url, score, deadline FROM jobs WHERE deadline IS NOT NULL AND deadline > NOW() AND deadline <= NOW() + (%s * INTERVAL '1 hour') ORDER BY deadline ASC""", (hours,)).fetchall()
 
-    def top(self, limit=20, min_score=0):
+    def top(self, limit=20, source=None):
         with self.conn() as c:
-            return c.execute("""
-                SELECT * FROM jobs
-                WHERE score >= %s
-                ORDER BY score DESC, last_seen_at DESC
-                LIMIT %s
-            """, (max(0, min_score), limit)).fetchall()
-
-    def applications(self, limit=100):
-        with self.conn() as c:
-            return c.execute("""
-                SELECT a.*, j.title, j.company, j.url, j.score, j.location, j.source
-                FROM applications a JOIN jobs j ON j.id=a.job_id
-                ORDER BY a.updated_at DESC LIMIT %s
-            """, (limit,)).fetchall()
+            if source:
+                return c.execute("SELECT * FROM jobs WHERE source=%s ORDER BY score DESC, last_seen_at DESC LIMIT %s", (source,limit)).fetchall()
+            return c.execute("SELECT * FROM jobs ORDER BY score DESC, last_seen_at DESC LIMIT %s", (limit,)).fetchall()
 
     def counts(self):
         with self.conn() as c:
-            return c.execute("""
-                SELECT
-                  (SELECT COUNT(*) FROM jobs) AS total,
-                  (SELECT COUNT(*) FROM jobs WHERE score >= 85) AS strong,
-                  (SELECT COUNT(*) FROM applications WHERE status IN ('READY_FOR_REVIEW','APPROVED','READY_TO_SUBMIT')) AS queue
-            """).fetchone()
+            return c.execute("""SELECT (SELECT COUNT(*) FROM jobs) AS total,(SELECT COUNT(*) FROM jobs WHERE score >= 85) AS strong,(SELECT COUNT(*) FROM applications WHERE status IN ('READY_FOR_REVIEW','APPROVED','READY_TO_SUBMIT')) AS queue""").fetchone()
+
+    def portal_counts(self):
+        with self.conn() as c:
+            return c.execute("SELECT source, COUNT(*) AS jobs, MAX(last_seen_at) AS last_seen FROM jobs GROUP BY source ORDER BY jobs DESC").fetchall()
+
+    def get_user_by_email(self,email):
+        with self.conn() as c: return c.execute("SELECT * FROM users WHERE lower(email)=lower(%s)",(email,)).fetchone()
+
+    def get_user(self,user_id):
+        with self.conn() as c: return c.execute("SELECT id,email,created_at,last_login_at FROM users WHERE id=%s",(user_id,)).fetchone()
+
+    def create_user(self,email,password_hash):
+        with self.conn() as c:
+            row=c.execute("INSERT INTO users(email,password_hash) VALUES(lower(%s),%s) RETURNING id,email,created_at",(email,password_hash)).fetchone(); c.commit(); return row
+
+    def set_login(self,user_id):
+        with self.conn() as c: c.execute("UPDATE users SET last_login_at=NOW() WHERE id=%s",(user_id,)); c.commit()
+
+    def create_session(self,user_id,token_hash,expires_at):
+        with self.conn() as c: c.execute("INSERT INTO sessions(user_id,token_hash,expires_at) VALUES(%s,%s,%s)",(user_id,token_hash,expires_at)); c.commit()
+
+    def session_user(self,token_hash):
+        with self.conn() as c: return c.execute("SELECT u.id,u.email,u.created_at,u.last_login_at,s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=%s AND s.expires_at>NOW()",(token_hash,)).fetchone()
+
+    def delete_session(self,token_hash):
+        with self.conn() as c: c.execute("DELETE FROM sessions WHERE token_hash=%s",(token_hash,)); c.commit()
+
+    def get_profile(self,user_id):
+        with self.conn() as c:
+            row=c.execute("SELECT profile FROM user_profiles WHERE user_id=%s",(user_id,)).fetchone()
+            return row["profile"] if row else {}
+
+    def save_profile(self,user_id,profile):
+        with self.conn() as c:
+            c.execute("INSERT INTO user_profiles(user_id,profile) VALUES(%s,%s) ON CONFLICT(user_id) DO UPDATE SET profile=EXCLUDED.profile,updated_at=NOW()",(user_id,Jsonb(profile))); c.commit()
+
+    def applications(self,user_id=None,limit=100):
+        with self.conn() as c:
+            if user_id:
+                return c.execute("SELECT a.id,a.status,a.resume_variant,a.updated_at,j.id AS job_id,j.title,j.company,j.url,j.score,j.source FROM applications a JOIN jobs j ON j.id=a.job_id WHERE a.user_id=%s ORDER BY a.updated_at DESC LIMIT %s",(user_id,limit)).fetchall()
+            return c.execute("SELECT a.id,a.status,a.resume_variant,a.updated_at,j.id AS job_id,j.title,j.company,j.url,j.score,j.source FROM applications a JOIN jobs j ON j.id=a.job_id ORDER BY a.updated_at DESC LIMIT %s",(limit,)).fetchall()
