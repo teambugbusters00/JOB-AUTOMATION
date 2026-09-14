@@ -1,4 +1,45 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JOB-AUTOMATION</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><div id="app"><aside><div class="brand">JOB<span>-</span>AUTOMATION</div><nav><a class="active" href="#dashboard">Dashboard</a><a href="#jobs">Jobs</a><a href="#applications">Applications</a><a href="#rag">RAG / Resume</a><a href="#settings">Settings</a></nav></aside><main><header><div><p class="eyebrow">AI JOB HUNTER</p><h1>Career Command Center</h1></div><button id="hunt">Run Job Hunt</button></header><section id="dashboard" class="grid"><article class="card stat"><small>Total Jobs</small><strong id="total">—</strong></article><article class="card stat"><small>Strong Matches</small><strong id="strong">—</strong></article><article class="card stat"><small>Review Queue</small><strong id="queue">—</strong></article></section><section class="card"><div class="section-head"><h2>Top Opportunities</h2><button class="ghost" onclick="loadJobs()">Refresh</button></div><div id="jobs"><div class="loading">Loading jobs…</div></div></section><section class="card"><h2>Application workflow</h2><div class="steps"><span>Discover</span><i>→</i><span>Match + RAG</span><i>→</i><span>Prepare</span><i>→</i><span>Human approval</span><i>→</i><span>Submit</span></div><p class="muted">Applications remain approval-first. The system does not bypass CAPTCHAs, anti-bot controls, authentication or legal declarations.</p></section></main></div><script src="/static/app.js"></script></body></html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JOB-AUTOMATION</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">JOB<span>-</span>AUTOMATION</div>
+    <nav id="nav">
+      <a href="#dashboard" data-view="dashboard" class="active">Dashboard</a>
+      <a href="#jobs" data-view="jobs">Jobs</a>
+      <a href="#applications" data-view="applications">Applications</a>
+      <a href="#rag" data-view="rag">RAG / Resume</a>
+      <a href="#settings" data-view="settings">Settings</a>
+    </nav>
+    <div class="side-status"><span class="dot"></span> System ready</div>
+  </aside>
+  <main>
+    <header>
+      <div><p class="eyebrow">AI JOB HUNTER</p><h1 id="page-title">Career Command Center</h1><p id="page-subtitle" class="muted">Discover, rank and prepare the best opportunities for you.</p></div>
+      <button id="hunt" class="primary">Run Job Hunt</button>
+    </header>
+
+    <div id="toast" class="toast" aria-live="polite"></div>
+
+    <section data-page="dashboard" class="page active-page">
+      <section class="grid">
+        <article class="card stat"><small>Total Jobs</small><strong id="total">—</strong><span>Discovered opportunities</span></article>
+        <article class="card stat"><small>Strong Matches</small><strong id="strong">—</strong><span>Score 85%+</span></article>
+        <article class="card stat"><small>Review Queue</small><strong id="queue">—</strong><span>Waiting for approval</span></article>
+      </section>
+      <section class="card"><div class="section-head"><h2>Top Opportunities</h2><button class="ghost" id="refresh-dashboard">Refresh</button></div><div id="dashboard-jobs"><div class="loading">Loading jobs…</div></div></section>
+      <section class="card"><h2>Application workflow</h2><div class="steps"><span>Discover</span><i>→</i><span>Match + RAG</span><i>→</i><span>Prepare</span><i>→</i><span>Human approval</span><i>→</i><span>Submit</span></div><p class="muted">Approval-first. The system does not bypass CAPTCHAs, anti-bot controls, authentication or legal declarations.</p></section>
+    </section>
+
+    <section data-page="jobs" class="page"><div class="card"><div class="section-head"><div><h2>Job Discovery</h2><p class="muted">All eligible jobs ranked by profile fit.</p></div><button class="ghost" id="refresh-jobs">Refresh</button></div><div class="toolbar"><input id="job-search" placeholder="Search title, company, skill…"><select id="job-min-score"><option value="0">All scores</option><option value="75">75%+</option><option value="85">85%+</option><option value="90">90%+</option></select></div><div id="jobs-list"><div class="loading">Loading jobs…</div></div></div></section>
+
+    <section data-page="applications" class="page"><div class="card"><div class="section-head"><div><h2>Application Queue</h2><p class="muted">Review prepared applications before submission.</p></div><button class="ghost" id="refresh-apps">Refresh</button></div><div id="applications-list"><div class="loading">Loading applications…</div></div></div></section>
+
+    <section data-page="rag" class="page"><div class="grid two"><article class="card"><h2>RAG / Resume Intelligence</h2><p class="muted">Your CV knowledge base powers semantic job matching and application preparation.</p><div class="rag-status"><span class="status-icon">RAG</span><div><strong>Knowledge Base</strong><p class="muted" id="rag-status">Checking status…</p></div></div><div class="upload-box"><strong>CV ingestion</strong><p class="muted">Upload processing endpoint is ready for PDF/DOCX ingestion, chunking and embeddings.</p><button class="ghost" id="rag-check">Check RAG Status</button></div></article><article class="card"><h2>How matching works</h2><div class="feature-list"><div><b>01</b><span>CV sections are chunked into searchable knowledge.</span></div><div><b>02</b><span>Relevant CV evidence is retrieved for each job.</span></div><div><b>03</b><span>Skills, role, location and evidence are combined into a score.</span></div><div><b>04</b><span>Resume variants and answers stay grounded in your profile.</span></div></div></article></div></section>
+
+    <section data-page="settings" class="page"><div class="grid two"><article class="card"><h2>Profile</h2><div class="setting"><span>Name</span><strong>Vijay Ramdev</strong></div><div class="setting"><span>Education</span><strong>B.Tech CSE (AI & ML)</strong></div><div class="setting"><span>Location</span><strong>India · Jodhpur</strong></div><div class="setting"><span>Graduation</span><strong>2028</strong></div></article><article class="card"><h2>Automation</h2><div class="setting"><span>Scheduled hunt</span><strong>Daily · 08:00 IST</strong></div><div class="setting"><span>India eligibility</span><strong>Required</strong></div><div class="setting"><span>Submission mode</span><strong>Human approval</strong></div><div class="setting"><span>Database</span><strong id="db-status">Checking…</strong></div></article></div></section>
+  </main>
+</div>
+<script src="/static/app.js"></script>
+</body></html>
