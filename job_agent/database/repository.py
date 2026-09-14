@@ -19,15 +19,18 @@ CREATE TABLE IF NOT EXISTS jobs (
  salary TEXT,
  description TEXT,
  url TEXT NOT NULL,
+ deadline TIMESTAMPTZ,
  score INTEGER DEFAULT 0,
  match_reasons JSONB DEFAULT '[]'::jsonb,
  status TEXT DEFAULT 'DISCOVERED',
  first_seen_at TIMESTAMPTZ DEFAULT NOW(),
  last_seen_at TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS deadline TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_jobs_score ON jobs(score DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);
+CREATE INDEX IF NOT EXISTS idx_jobs_deadline ON jobs(deadline);
 
 CREATE TABLE IF NOT EXISTS applications (
  id BIGSERIAL PRIMARY KEY,
@@ -63,14 +66,14 @@ class JobRepository:
         with self.conn() as c:
             row = c.execute("""
                 INSERT INTO jobs (fingerprint, external_id, source, title, company, location, remote,
-                    employment_type, salary, description, url, score, match_reasons, last_seen_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    employment_type, salary, description, url, deadline, score, match_reasons, last_seen_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                 ON CONFLICT (fingerprint) DO UPDATE SET
                     score=EXCLUDED.score, match_reasons=EXCLUDED.match_reasons,
-                    url=EXCLUDED.url, description=EXCLUDED.description, last_seen_at=NOW()
+                    url=EXCLUDED.url, description=EXCLUDED.description, deadline=EXCLUDED.deadline, last_seen_at=NOW()
                 RETURNING id
             """, (job.fingerprint, job.external_id, job.source, job.title, job.company, job.location,
-                  job.remote, job.employment_type, job.salary, job.description, job.url, score, Jsonb(reasons))).fetchone()
+                  job.remote, job.employment_type, job.salary, job.description, job.url, job.deadline, score, Jsonb(reasons))).fetchone()
             c.commit()
             return row["id"]
 
@@ -90,6 +93,14 @@ class JobRepository:
         with self.conn() as c:
             c.execute("UPDATE applications SET status=%s, updated_at=NOW() WHERE id=%s", (status, application_id))
             c.commit()
+
+    def expiring(self, hours=72):
+        with self.conn() as c:
+            return c.execute("""
+                SELECT title, company, url, score, deadline FROM jobs
+                WHERE deadline IS NOT NULL AND deadline > NOW() AND deadline <= NOW() + (%s * INTERVAL '1 hour')
+                ORDER BY deadline ASC
+            """, (hours,)).fetchall()
 
     def top(self, limit=20):
         with self.conn() as c:
