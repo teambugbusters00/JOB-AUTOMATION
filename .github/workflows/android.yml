@@ -1,0 +1,63 @@
+name: Android App
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: 'Render URL used by the Android app'
+        required: false
+        default: 'https://job-automation.onrender.com'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'capacitor.config.ts'
+      - 'package.json'
+      - '.github/workflows/android.yml'
+
+env:
+  CAPACITOR_SERVER_URL: ${{ inputs.server_url || 'https://job-automation.onrender.com' }}
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Capacitor
+        run: npm install
+
+      - name: Generate Android project
+        run: npx cap add android
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build installable debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JOB-AUTOMATION-Android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
