@@ -28,6 +28,19 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS idx_jobs_score ON jobs(score DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);
+
+CREATE TABLE IF NOT EXISTS applications (
+ id BIGSERIAL PRIMARY KEY,
+ job_id BIGINT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+ status TEXT NOT NULL DEFAULT 'READY_FOR_REVIEW',
+ resume_variant TEXT,
+ cover_letter TEXT,
+ prepared_answers JSONB DEFAULT '{}'::jsonb,
+ submitted_at TIMESTAMPTZ,
+ updated_at TIMESTAMPTZ DEFAULT NOW(),
+ UNIQUE(job_id)
+);
+CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
 '''
 
 class JobRepository:
@@ -48,7 +61,7 @@ class JobRepository:
 
     def upsert(self, job: Job, score: int, reasons: list[str]):
         with self.conn() as c:
-            c.execute("""
+            row = c.execute("""
                 INSERT INTO jobs (fingerprint, external_id, source, title, company, location, remote,
                     employment_type, salary, description, url, score, match_reasons, last_seen_at)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
@@ -57,10 +70,26 @@ class JobRepository:
                     url=EXCLUDED.url, description=EXCLUDED.description, last_seen_at=NOW()
                 RETURNING id
             """, (job.fingerprint, job.external_id, job.source, job.title, job.company, job.location,
-                  job.remote, job.employment_type, job.salary, job.description, job.url, score, Jsonb(reasons)))
-            row = c.fetchone()
+                  job.remote, job.employment_type, job.salary, job.description, job.url, score, Jsonb(reasons))).fetchone()
             c.commit()
             return row["id"]
+
+    def queue_application(self, job_id: int, resume_variant: str):
+        with self.conn() as c:
+            c.execute("""
+                INSERT INTO applications(job_id, status, resume_variant)
+                VALUES (%s, 'READY_FOR_REVIEW', %s)
+                ON CONFLICT(job_id) DO NOTHING
+            """, (job_id, resume_variant))
+            c.commit()
+
+    def update_application_status(self, application_id: int, status: str):
+        allowed = {"READY_FOR_REVIEW", "APPROVED", "PREPARING", "READY_TO_SUBMIT", "SUBMITTED", "ASSESSMENT", "INTERVIEW", "OFFER", "REJECTED", "WITHDRAWN"}
+        if status not in allowed:
+            raise ValueError(f"Unsupported application status: {status}")
+        with self.conn() as c:
+            c.execute("UPDATE applications SET status=%s, updated_at=NOW() WHERE id=%s", (status, application_id))
+            c.commit()
 
     def top(self, limit=20):
         with self.conn() as c:
@@ -68,4 +97,9 @@ class JobRepository:
 
     def counts(self):
         with self.conn() as c:
-            return c.execute("SELECT COUNT(*) total, COUNT(*) FILTER (WHERE score >= 85) strong, COUNT(*) FILTER (WHERE status IN ('READY_FOR_REVIEW','APPROVED')) queue FROM jobs").fetchone()
+            return c.execute("""
+                SELECT
+                  (SELECT COUNT(*) FROM jobs) AS total,
+                  (SELECT COUNT(*) FROM jobs WHERE score >= 85) AS strong,
+                  (SELECT COUNT(*) FROM applications WHERE status IN ('READY_FOR_REVIEW','APPROVED','READY_TO_SUBMIT')) AS queue
+            """).fetchone()
