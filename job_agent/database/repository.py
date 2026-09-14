@@ -102,9 +102,22 @@ class JobRepository:
                 ORDER BY deadline ASC
             """, (hours,)).fetchall()
 
-    def top(self, limit=20):
+    def top(self, limit=20, min_score=0):
         with self.conn() as c:
-            return c.execute("SELECT * FROM jobs WHERE score >= 75 ORDER BY score DESC, last_seen_at DESC LIMIT %s", (limit,)).fetchall()
+            return c.execute("""
+                SELECT * FROM jobs
+                WHERE score >= %s
+                ORDER BY score DESC, last_seen_at DESC
+                LIMIT %s
+            """, (max(0, min_score), limit)).fetchall()
+
+    def applications(self, limit=100):
+        with self.conn() as c:
+            return c.execute("""
+                SELECT a.*, j.title, j.company, j.url, j.score, j.location, j.source
+                FROM applications a JOIN jobs j ON j.id=a.job_id
+                ORDER BY a.updated_at DESC LIMIT %s
+            """, (limit,)).fetchall()
 
     def counts(self):
         with self.conn() as c:
