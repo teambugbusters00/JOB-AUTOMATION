@@ -1,0 +1,67 @@
+name: Vijay Ramdev
+location: India
+city: Jodhpur
+education: B.Tech CSE (AI & ML)
+college: Jodhpur Institute of Engineering and Technology
+graduation: 2028
+cgpa: 7.18
+employment_modes:
+  - internship
+  - full-time
+remote_modes:
+  - India
+  - worldwide
+roles:
+  - Software Engineer Intern
+  - Full Stack Intern
+  - AI/ML Intern
+  - AI Engineer Intern
+  - ML Engineer Intern
+  - Backend Intern
+  - Frontend Intern
+  - GenAI / LLM Intern
+  - AI Agent Intern
+  - Research Intern
+  - Software Engineer
+  - Full Stack Developer
+  - AI Engineer
+  - ML Engineer
+  - Backend Engineer
+  - Frontend Engineer
+skills:
+  - Python
+  - C++
+  - JavaScript
+  - TypeScript
+  - SQL
+  - PyTorch
+  - TensorFlow
+  - Keras
+  - scikit-learn
+  - React
+  - Node.js
+  - FastAPI
+  - Flask
+  - Docker
+  - Kubernetes
+  - Azure
+  - CI/CD
+  - Machine Learning
+  - Deep Learning
+  - Computer Vision
+  - NLP
+  - Transformers
+  - LLM
+  - RAG
+  - Agentic AI
+  - AI Agents
+profile_urls:
+  github: https://github.com/Vijayjangid0909
+  portfolio: https://bugbusters-dev.vercel.app/
+  linkedin: null
+  huggingface: null
+filters:
+  min_monthly_stipend: null
+  preferred_countries: []
+  excluded_countries: []
+  india_eligibility_required: true
