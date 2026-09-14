@@ -1,8 +1,8 @@
 import re
-from datetime import datetime, timezone
 from html import unescape
 import requests
 from ..models import Job
+from ..portals import collect_public_portals
 
 TIMEOUT = 20
 HEADERS = {"User-Agent": "JOB-AUTOMATION/1.0 (+job discovery)"}
@@ -20,11 +20,7 @@ def wanted(profile=None):
 def matches(job, profile):
     text = f"{job.title} {job.description} {job.location} {job.remote}".lower()
     terms = [x.lower() for x in wanted(profile)]
-    role_ok = any(x in text for x in terms)
-    work_modes = [str(x).lower() for x in (profile or {}).get("employment_modes", [])]
-    if work_modes and not any(x in text for x in work_modes) and not any(x in text for x in ["full-time", "full_time", "internship", "contract"]):
-        return role_ok
-    return role_ok
+    return any(x in text for x in terms)
 
 def collect_remotive(profile=None):
     r = requests.get("https://remotive.com/api/remote-jobs", timeout=TIMEOUT, headers=HEADERS); r.raise_for_status()
@@ -66,4 +62,9 @@ def collect_public_boards(profile=None):
     for collector in (collect_remotive, collect_remoteok, collect_jobicy, collect_arbeitnow):
         try: out.extend(collector(profile))
         except Exception as exc: print(f"collector={collector.__name__} failed: {type(exc).__name__}")
+    try:
+        portal_jobs=collect_public_portals()
+        out.extend([j for j in portal_jobs if matches(j,profile)])
+    except Exception as exc:
+        print(f"collector=multi_startup_portals failed: {type(exc).__name__}")
     return out
