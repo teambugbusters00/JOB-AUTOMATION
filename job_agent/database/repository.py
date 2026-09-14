@@ -151,6 +151,8 @@ class JobRepository:
     def admin_update_profile(self,user_id,profile):
         if not self.get_user(user_id): raise ValueError("User not found")
         self.save_profile(user_id,profile); return self.get_profile(user_id)
+    def update_user_password(self,user_id,password_hash):
+        with self.conn() as c: c.execute("UPDATE users SET password_hash=%s WHERE id=%s",(password_hash,user_id)); c.commit()
     def delete_user(self,user_id):
         with self.conn() as c:
             row=c.execute("DELETE FROM users WHERE id=%s RETURNING id,email",(user_id,)).fetchone(); c.commit(); return row
