@@ -1,0 +1,27 @@
+# Copy to config/application_profile.yaml locally. Never commit real sensitive values.
+# This file contains information needed to prepare applications; legal/identity data should stay in a secure secret store.
+application:
+  auto_prepare: true
+  auto_submit: false
+  require_human_approval: true
+
+candidate:
+  availability_start: ""
+  preferred_stipend_monthly_inr: null
+  preferred_salary_annual_inr: null
+  willing_to_relocate: true
+  sponsorship_required: "unknown"
+
+work_authorization:
+  india: true
+  united_states: "unknown"
+  canada: "unknown"
+  united_kingdom: "unknown"
+  european_union: "unknown"
+
+question_policy:
+  never_guess_identity: true
+  never_guess_work_authorization: true
+  never_guess_legal_declarations: true
+  never_bypass_captcha: true
+  stop_for_human_review: true
