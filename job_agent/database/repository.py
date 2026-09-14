@@ -1,8 +1,8 @@
 import os
 from contextlib import contextmanager
-from datetime import datetime, timezone
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from ..models import Job
 
 DDL = '''
@@ -57,7 +57,7 @@ class JobRepository:
                     url=EXCLUDED.url, description=EXCLUDED.description, last_seen_at=NOW()
                 RETURNING id
             """, (job.fingerprint, job.external_id, job.source, job.title, job.company, job.location,
-                  job.remote, job.employment_type, job.salary, job.description, job.url, score, reasons))
+                  job.remote, job.employment_type, job.salary, job.description, job.url, score, Jsonb(reasons)))
             row = c.fetchone()
             c.commit()
             return row["id"]
