@@ -47,6 +47,26 @@ CREATE TABLE IF NOT EXISTS portal_runs (
  saved INTEGER DEFAULT 0, error TEXT, ran_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_portal_runs_portal ON portal_runs(portal, ran_at DESC);
+CREATE TABLE IF NOT EXISTS cv_documents (
+ id BIGSERIAL PRIMARY KEY,
+ user_id BIGINT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ filename TEXT NOT NULL,
+ content_type TEXT NOT NULL,
+ file_size BIGINT NOT NULL,
+ file_data BYTEA NOT NULL,
+ extracted_text TEXT DEFAULT '',
+ uploaded_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cv_documents_user ON cv_documents(user_id);
+CREATE TABLE IF NOT EXISTS admin_sessions (
+ id BIGSERIAL PRIMARY KEY,
+ admin_email TEXT NOT NULL,
+ token_hash TEXT UNIQUE NOT NULL,
+ expires_at TIMESTAMPTZ NOT NULL,
+ created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON admin_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_expiry ON admin_sessions(expires_at);
 '''
 
 class JobRepository:
@@ -74,10 +94,14 @@ class JobRepository:
         with self.conn() as c: c.execute("UPDATE applications SET status=%s,updated_at=NOW() WHERE id=%s",(status,application_id)); c.commit()
     def expiring(self,hours=72):
         with self.conn() as c: return c.execute("SELECT title,company,url,score,deadline FROM jobs WHERE deadline IS NOT NULL AND deadline>NOW() AND deadline<=NOW()+(%s*INTERVAL '1 hour') ORDER BY deadline ASC",(hours,)).fetchall()
-    def top(self,limit=20,source=None):
+    def top(self,limit=20,source=None,employment_type=None):
         with self.conn() as c:
-            if source: return c.execute("SELECT * FROM jobs WHERE source=%s ORDER BY score DESC,last_seen_at DESC LIMIT %s",(source,limit)).fetchall()
-            return c.execute("SELECT * FROM jobs ORDER BY score DESC,last_seen_at DESC LIMIT %s",(limit,)).fetchall()
+            clauses=[]; params=[]
+            if source: clauses.append("source=%s"); params.append(source)
+            if employment_type and employment_type != "all": clauses.append("lower(replace(employment_type,' ', '-'))=%s"); params.append(employment_type.lower().replace(' ','-'))
+            where=(" WHERE " + " AND ".join(clauses)) if clauses else ""
+            params.append(limit)
+            return c.execute(f"SELECT * FROM jobs{where} ORDER BY score DESC,last_seen_at DESC LIMIT %s",tuple(params)).fetchall()
     def counts(self):
         with self.conn() as c: return c.execute("SELECT (SELECT COUNT(*) FROM jobs) AS total,(SELECT COUNT(*) FROM jobs WHERE score>=85) AS strong,(SELECT COUNT(*) FROM applications WHERE status IN ('READY_FOR_REVIEW','APPROVED','READY_TO_SUBMIT')) AS queue").fetchone()
     def portal_counts(self):
@@ -109,3 +133,30 @@ class JobRepository:
         with self.conn() as c: c.execute("INSERT INTO portal_runs(portal,status,discovered,saved,error) VALUES(%s,%s,%s,%s,%s)",(portal,status,discovered,saved,error)); c.commit()
     def portal_runs(self,limit=100):
         with self.conn() as c: return c.execute("SELECT * FROM portal_runs ORDER BY ran_at DESC LIMIT %s",(limit,)).fetchall()
+    def save_cv(self,user_id,filename,content_type,file_data,extracted_text):
+        with self.conn() as c:
+            row=c.execute("""INSERT INTO cv_documents(user_id,filename,content_type,file_size,file_data,extracted_text)
+            VALUES(%s,%s,%s,%s,%s,%s)
+            ON CONFLICT(user_id) DO UPDATE SET filename=EXCLUDED.filename,content_type=EXCLUDED.content_type,file_size=EXCLUDED.file_size,file_data=EXCLUDED.file_data,extracted_text=EXCLUDED.extracted_text,uploaded_at=NOW()
+            RETURNING id,filename,content_type,file_size,uploaded_at""",(user_id,filename,content_type,len(file_data),file_data,extracted_text)).fetchone(); c.commit(); return row
+    def get_cv_meta(self,user_id):
+        with self.conn() as c: return c.execute("SELECT id,filename,content_type,file_size,uploaded_at,length(extracted_text) AS text_length FROM cv_documents WHERE user_id=%s",(user_id,)).fetchone()
+    def get_cv(self,user_id):
+        with self.conn() as c: return c.execute("SELECT filename,content_type,file_size,file_data,extracted_text,uploaded_at FROM cv_documents WHERE user_id=%s",(user_id,)).fetchone()
+    def list_users(self):
+        with self.conn() as c:
+            return c.execute("""SELECT u.id,u.email,u.created_at,u.last_login_at,p.profile,
+                cv.filename AS cv_filename,cv.content_type AS cv_content_type,cv.file_size AS cv_file_size,cv.uploaded_at AS cv_uploaded_at
+                FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN cv_documents cv ON cv.user_id=u.id ORDER BY u.created_at DESC""").fetchall()
+    def admin_update_profile(self,user_id,profile):
+        if not self.get_user(user_id): raise ValueError("User not found")
+        self.save_profile(user_id,profile); return self.get_profile(user_id)
+    def delete_user(self,user_id):
+        with self.conn() as c:
+            row=c.execute("DELETE FROM users WHERE id=%s RETURNING id,email",(user_id,)).fetchone(); c.commit(); return row
+    def create_admin_session(self,email,token_hash,expires_at):
+        with self.conn() as c: c.execute("INSERT INTO admin_sessions(admin_email,token_hash,expires_at) VALUES(%s,%s,%s)",(email,token_hash,expires_at)); c.commit()
+    def admin_session(self,token_hash):
+        with self.conn() as c: return c.execute("SELECT admin_email,expires_at FROM admin_sessions WHERE token_hash=%s AND expires_at>NOW()",(token_hash,)).fetchone()
+    def delete_admin_session(self,token_hash):
+        with self.conn() as c: c.execute("DELETE FROM admin_sessions WHERE token_hash=%s",(token_hash,)); c.commit()
