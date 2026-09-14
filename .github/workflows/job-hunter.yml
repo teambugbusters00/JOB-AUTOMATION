@@ -1,23 +1,48 @@
-name: Job Hunter
+name: Production Job Hunter
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 2 * * *'
+    - cron: '30 2 * * *' # 08:00 IST
+
+concurrency:
+  group: job-hunter
+  cancel-in-progress: false
 
 jobs:
   hunt:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -r requirements.txt
-      - run: python -m job_agent
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Run production discovery
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          JOB_KEYWORDS: software engineer,software engineer intern,ai engineer,ai/ml intern,machine learning,full stack,backend,frontend,genai,llm,ai agent,research intern
+          GREENHOUSE_BOARDS: ${{ vars.GREENHOUSE_BOARDS }}
+          LEVER_SITES: ${{ vars.LEVER_SITES }}
+          ASHBY_BOARDS: ${{ vars.ASHBY_BOARDS }}
+        run: python -m job_agent | tee daily-report.txt
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-job-report-${{ github.run_number }}
+          path: daily-report.txt
+          retention-days: 30
