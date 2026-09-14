@@ -1,19 +1,82 @@
 # JOB-AUTOMATION
 
-Remote internship/job discovery and application assistant.
+Production-oriented job discovery, matching, application-preparation and tracking system for Vijay Ramdev.
 
-## Pipeline
-GitHub Actions -> collectors -> normalize -> deduplicate -> eligibility -> CV matcher -> ranking -> storage -> notifications -> approval queue.
+## What is live in this repository
 
-Approval-first by design: the system prepares applications but does not bypass CAPTCHAs, authentication, robots rules, or submit legal/work-authorisation declarations without approval.
+- Daily GitHub Actions job hunt at 08:00 IST
+- Manual workflow trigger
+- Himalayas public JSON API collector
+- Configurable Greenhouse public-board collector
+- Configurable Lever public-postings collector
+- Configurable Ashby public job-board collector
+- Normalization and deterministic job fingerprints
+- India/worldwide eligibility filtering
+- Role + skill + student/entry-level matching
+- PostgreSQL persistence with upserts and indexes
+- Telegram daily report
+- Daily report artifact retained for 30 days
+- CI tests on pushes and pull requests
+- Application profile template
+- Human-approval safety policy for application execution
 
-## Profile
-Vijay Ramdev | Jodhpur, Rajasthan, India | B.Tech CSE (AI & ML), JIET | Graduation June 2028 | CGPA 7.18
+## Production architecture
 
-Target roles: Software Engineering, Full Stack, AI/ML, AI Engineering, ML, Backend, Frontend, GenAI/LLM, AI Agents, Research.
+```text
+Sources
+  -> Collectors
+  -> Normalize
+  -> Deduplicate
+  -> India eligibility
+  -> Match + score
+  -> PostgreSQL
+  -> Daily report
+  -> Telegram
+  -> Application review queue
+  -> Human approval
+  -> Permitted browser/form automation
+  -> Application tracking
+```
 
-## Run
+## Important application policy
+
+The system is approval-first. It can prepare resumes, cover letters, application answers and form data, but it must not bypass CAPTCHA, authentication, anti-bot controls, or legal declarations, and it must not invent candidate information. Sensitive questions stop for human review.
+
+## GitHub Actions configuration
+
+Required **Repository Secrets**:
+
+- `DATABASE_URL`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+
+Optional **Repository Variables**:
+
+- `GREENHOUSE_BOARDS` — comma-separated public Greenhouse board slugs
+- `LEVER_SITES` — comma-separated Lever site slugs
+- `ASHBY_BOARDS` — comma-separated Ashby public job-board slugs
+
+The default daily workflow already searches the user's target role families through Himalayas.
+
+## Local run
+
 ```bash
 pip install -r requirements.txt
 python -m job_agent
+pytest -q
 ```
+
+For PostgreSQL persistence locally:
+
+```bash
+set DATABASE_URL=postgresql://...
+python -m job_agent
+```
+
+## Next production layer
+
+The discovery and tracking foundation is now implemented. The next layer is the application workspace: resume variants, tailored cover letters, structured application answers, approval UI, application event history, permitted Playwright form filling, deadline monitoring, and a dashboard/API.
+
+## Data-source note
+
+Himalayas is used through its public JSON API. When its data is displayed in a UI, retain source attribution and a link back to Himalayas as required by its API documentation.
