@@ -1,6 +1,6 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
-const serverUrl = process.env.CAPACITOR_SERVER_URL || 'https://job-automation.onrender.com';
+const serverUrl = process.env.CAPACITOR_SERVER_URL || 'https://job-automation-8nm3.onrender.com';
 
 const config: CapacitorConfig = {
   appId: 'com.teambugbusters.jobautomation',
