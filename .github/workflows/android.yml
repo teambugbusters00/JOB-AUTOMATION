@@ -6,7 +6,7 @@ on:
       server_url:
         description: 'Render URL used by the Android app'
         required: false
-        default: 'https://job-automation.onrender.com'
+        default: 'https://job-automation-8nm3.onrender.com'
         type: string
   push:
     branches: [main]
@@ -17,7 +17,7 @@ on:
       - '.github/workflows/android.yml'
 
 env:
-  CAPACITOR_SERVER_URL: ${{ inputs.server_url || 'https://job-automation.onrender.com' }}
+  CAPACITOR_SERVER_URL: ${{ inputs.server_url || 'https://job-automation-8nm3.onrender.com' }}
 
 jobs:
   build-android:
