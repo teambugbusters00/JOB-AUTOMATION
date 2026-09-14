@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from job_agent.database.repository import JobRepository
 
 BASE = Path(__file__).resolve().parent
-app = FastAPI(title="JOB-AUTOMATION API", version="1.1.0")
+app = FastAPI(title="JOB-AUTOMATION API", version="1.2.0")
 origins=[x.strip() for x in os.getenv("CORS_ORIGINS","*").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
 app.mount("/static",StaticFiles(directory=BASE/"static"),name="static")
@@ -40,16 +40,23 @@ def health():
 def stats(): return dict(require_db().counts())
 
 @app.get("/api/jobs")
-def jobs(limit:int=20): return [dict(row) for row in require_db().top(max(1,min(limit,100)))]
+def jobs(limit:int=50,min_score:int=0):
+    return [dict(row) for row in require_db().top(max(1,min(limit,100)),max(0,min_score))]
 
 @app.get("/api/expiring")
 def expiring(hours:int=72): return [dict(row) for row in require_db().expiring(max(1,min(hours,720)))]
 
 @app.get("/api/applications")
 def applications(limit:int=100):
-    with require_db().conn() as c:
-        rows=c.execute("""SELECT a.id,a.status,a.resume_variant,a.updated_at,j.title,j.company,j.url,j.score FROM applications a JOIN jobs j ON j.id=a.job_id ORDER BY a.updated_at DESC LIMIT %s""",(max(1,min(limit,100)),)).fetchall()
-        return [dict(r) for r in rows]
+    return [dict(row) for row in require_db().applications(max(1,min(limit,100)))]
+
+@app.patch("/api/applications/{application_id}")
+def update_application(application_id:int,payload:dict[str,Any]):
+    status=payload.get("status")
+    if not status: raise HTTPException(400,"status is required")
+    try: require_db().update_application_status(application_id,status)
+    except ValueError as exc: raise HTTPException(400,str(exc))
+    return {"status":"updated","application_id":application_id,"new_status":status}
 
 @app.get("/api/rag/status")
 def rag_status():
@@ -64,5 +71,7 @@ def rag_status():
 def hunt():
     try:
         from job_agent.pipeline import run
-        return {"status":"completed","result":run()}
-    except Exception as exc: raise HTTPException(500,f"Job hunt failed: {type(exc).__name__}")
+        ranked=run()
+        return {"status":"completed","discovered":len(ranked),"strong_matches":sum(1 for x in ranked if x[0]>=85),"message":"Job hunt completed and jobs were saved to Neon"}
+    except Exception as exc:
+        raise HTTPException(500,f"Job hunt failed: {type(exc).__name__}: {exc}")
