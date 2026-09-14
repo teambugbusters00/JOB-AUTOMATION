@@ -18,6 +18,35 @@ The first visit shows **Login / Create account**. New users complete an onboardi
 
 The profile is stored per user in Neon PostgreSQL and drives screening/ranking.
 
+## Android app (Capacitor)
+
+The project includes a Capacitor Android shell so the same responsive web application can be installed as an Android APK. The Android shell loads the production Render application over HTTPS, so login, Neon data, portal screening and the existing backend continue to work from the app.
+
+### Build from GitHub Actions
+
+Open **Actions → Android App → Run workflow**. The workflow:
+
+1. Installs Node.js and Java.
+2. Installs Capacitor.
+3. Generates the Android project.
+4. Syncs the Capacitor configuration.
+5. Builds an installable debug APK.
+6. Uploads `app-debug.apk` as a workflow artifact.
+
+The workflow accepts a `server_url` input. Set it to the exact Render URL of the deployed JOB-AUTOMATION service if it differs from the default.
+
+### Local Android build
+
+```bash
+npm install
+npx cap add android
+npx cap sync android
+cd android
+./gradlew assembleDebug
+```
+
+The mobile UI is responsive for phones and tablets, including the StartupMap-inspired global job explorer, country/location filters, job cards, dashboard, portals, applications, RAG/resume and settings screens.
+
 ## All Jobs
 
 The **All Jobs** page now supports:
