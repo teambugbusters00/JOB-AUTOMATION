@@ -4,12 +4,20 @@ from bs4 import BeautifulSoup
 from ..models import Job
 
 
+# Public Ashby job-board names. Users can override this list with ASHBY_BOARDS.
+DEFAULT_BOARDS = "uipath,linear,ramp,notion,perplexity"
+
+
 def collect_ashby():
     jobs = []
-    boards = [x.strip() for x in os.getenv("ASHBY_BOARDS", "").split(",") if x.strip()]
+    boards = [x.strip() for x in os.getenv("ASHBY_BOARDS", DEFAULT_BOARDS).split(",") if x.strip()]
     for board in boards:
         try:
-            r = requests.get(f"https://api.ashbyhq.com/posting-api/job-board/{board}", timeout=20)
+            r = requests.get(
+                f"https://api.ashbyhq.com/posting-api/job-board/{board}",
+                timeout=20,
+                headers={"User-Agent": "JOB-AUTOMATION/1.0"},
+            )
             r.raise_for_status()
             items = r.json().get("jobs", [])
         except (requests.RequestException, ValueError):
