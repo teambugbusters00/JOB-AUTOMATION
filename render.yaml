@@ -3,4 +3,7 @@ services:
     name: job-automation
     runtime: docker
     dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: sh docker/start.sh
     healthCheckPath: /health
+    autoDeploy: true
