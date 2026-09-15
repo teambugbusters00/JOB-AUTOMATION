@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from urllib.parse import urljoin
 import re
 import xml.etree.ElementTree as ET
+import json
 
 import requests
 from bs4 import BeautifulSoup
@@ -30,9 +31,9 @@ PORTALS = [
     Portal("startupmap", "StartupMap", "https://startupmap.one/jobs", "html", "European startup jobs, updated from company career pages."),
     Portal("welcometothejungle", "Welcome to the Jungle", "https://www.welcometothejungle.com/en/jobs", "link", "Profile-driven global startup and tech jobs; open the portal to use its native matching."),
     Portal("wellfound", "Wellfound", "https://wellfound.com/jobs", "link", "Startup jobs; native account/search experience is used instead of unauthorized automated scraping."),
-    Portal("greenhouse", "Greenhouse", "https://www.greenhouse.com/", "api", "Company ATS feeds configured through GREENHOUSE_BOARDS."),
-    Portal("lever", "Lever", "https://www.lever.co/", "api", "Company ATS feeds configured through LEVER_SITES."),
-    Portal("ashby", "Ashby", "https://www.ashbyhq.com/", "api", "Company ATS feeds configured through ASHBY_BOARDS."),
+    Portal("greenhouse", "Greenhouse", "https://www.greenhouse.com/", "api", "Public company ATS feeds; default board slugs are included and can be overridden with GREENHOUSE_BOARDS."),
+    Portal("lever", "Lever", "https://www.lever.co/", "api", "Public company ATS feeds; default company slugs are included and can be overridden with LEVER_SITES."),
+    Portal("ashby", "Ashby", "https://www.ashbyhq.com/", "api", "Public Ashby job-board feeds; default boards are included and can be overridden with ASHBY_BOARDS."),
 ]
 
 
@@ -72,26 +73,51 @@ def collect_startup_jobs(max_per_feed: int = 50) -> list[Job]:
     return jobs
 
 
+def _jsonld_jobs(soup: BeautifulSoup, page_url: str, source: str, limit: int) -> list[Job]:
+    out: list[Job] = []
+    for node in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(node.string or node.get_text())
+        except Exception:
+            continue
+        candidates = data if isinstance(data, list) else data.get("itemListElement", []) if isinstance(data, dict) else []
+        if isinstance(data, dict) and data.get("@type") == "JobPosting":
+            candidates = [data]
+        for item in candidates:
+            if isinstance(item, dict) and isinstance(item.get("item"), dict): item = item["item"]
+            if not isinstance(item, dict): continue
+            if item.get("@type") != "JobPosting": continue
+            title = _clean(str(item.get("title", "")))
+            link = urljoin(page_url, str(item.get("url", "")))
+            desc = BeautifulSoup(str(item.get("description", "")), "html.parser").get_text(" ", strip=True)
+            loc = item.get("jobLocation", {})
+            if isinstance(loc, list): loc = loc[0] if loc else {}
+            address = loc.get("address", {}) if isinstance(loc, dict) else {}
+            location = ", ".join(str(address.get(k, "")) for k in ("addressLocality", "addressRegion", "addressCountry") if address.get(k))
+            remote = "remote" if "telecommute" in str(item.get("jobLocationType", "")).lower() or "remote" in (title + desc).lower() else ""
+            if title and link: out.append(Job(title, source, location or "Unknown", remote, link, source, desc, employment_type=_job_type(title + desc)))
+            if len(out) >= limit: return out
+    return out
+
+
 def collect_public_html(url: str, source: str, limit: int = 80) -> list[Job]:
     r = requests.get(url, timeout=25, headers={"User-Agent": "Mozilla/5.0 JOB-AUTOMATION/1.0"})
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
-    out: list[Job] = []
-    seen: set[str] = set()
-    # Generic, conservative extraction: only public anchor content, no login/session automation.
+    out: list[Job] = _jsonld_jobs(soup, url, source, limit)
+    seen: set[str] = {j.url for j in out}
+    # Public-page extraction only. No login/session automation or CAPTCHA bypass.
     for a in soup.find_all("a", href=True):
         href = urljoin(url, a.get("href"))
         text = _clean(a.get_text(" ", strip=True))
-        if not text or len(text) < 5 or len(text) > 180: continue
-        if href in seen: continue
+        if not text or len(text) < 4 or len(text) > 220 or href in seen: continue
         low = (text + " " + href).lower()
-        if not any(k in low for k in ["job", "engineer", "developer", "intern", "software", "data", "machine learning", "ai"]): continue
-        if any(x in href.lower() for x in ["login", "signup", "privacy", "terms", "about", "contact"]): continue
+        path = href.lower()
+        if not any(k in low for k in ["job", "engineer", "developer", "intern", "software", "data", "machine learning", "ai", "frontend", "backend", "full-stack"]): continue
+        if any(x in path for x in ["login", "signup", "privacy", "terms", "about", "contact"]): continue
         parent = a.parent.get_text(" ", strip=True) if a.parent else text
         context = _clean(parent)
-        company = source
-        # Common "Title Company Location" patterns are kept in description/context rather than guessed aggressively.
-        out.append(Job(title=text, company=company, location="Unknown", remote="remote" if "remote" in context.lower() else "", url=href, source=source, description=context[:2500], employment_type=_job_type(context)))
+        out.append(Job(title=text, company=source, location="Unknown", remote="remote" if "remote" in context.lower() else "", url=href, source=source, description=context[:2500], employment_type=_job_type(context)))
         seen.add(href)
         if len(out) >= limit: break
     return out
@@ -121,5 +147,4 @@ def collect_public_portals() -> list[Job]:
             jobs.extend(collector())
         except Exception as exc:
             print(f"portal_collector={collector.__name__} failed={type(exc).__name__}")
-    # Generic HTML extraction can repeat the same links; normal pipeline dedupe handles that.
     return jobs
