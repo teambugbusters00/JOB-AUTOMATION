@@ -4,12 +4,21 @@ from bs4 import BeautifulSoup
 from ..models import Job
 
 
+# Public Greenhouse board slugs. Users can override this list with GREENHOUSE_BOARDS.
+DEFAULT_BOARDS = "stripe,airbnb,datadog,cloudflare,figma,openai,notion"
+
+
 def collect_greenhouse():
     jobs = []
-    boards = [x.strip() for x in os.getenv("GREENHOUSE_BOARDS", "").split(",") if x.strip()]
+    boards = [x.strip() for x in os.getenv("GREENHOUSE_BOARDS", DEFAULT_BOARDS).split(",") if x.strip()]
     for board in boards:
         try:
-            r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs", params={"content": "true"}, timeout=20)
+            r = requests.get(
+                f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs",
+                params={"content": "true"},
+                timeout=20,
+                headers={"User-Agent": "JOB-AUTOMATION/1.0"},
+            )
             r.raise_for_status()
             items = r.json().get("jobs", [])
         except (requests.RequestException, ValueError):
