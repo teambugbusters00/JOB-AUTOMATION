@@ -4,12 +4,21 @@ from bs4 import BeautifulSoup
 from ..models import Job
 
 
+# Public Lever company slugs. Users can override this list with LEVER_SITES.
+DEFAULT_SITES = "collate,sonarsource,rippling,webflow"
+
+
 def collect_lever():
     jobs = []
-    sites = [x.strip() for x in os.getenv("LEVER_SITES", "").split(",") if x.strip()]
+    sites = [x.strip() for x in os.getenv("LEVER_SITES", DEFAULT_SITES).split(",") if x.strip()]
     for site in sites:
         try:
-            r = requests.get(f"https://api.lever.co/v0/postings/{site}", params={"mode": "json"}, timeout=20)
+            r = requests.get(
+                f"https://api.lever.co/v0/postings/{site}",
+                params={"mode": "json"},
+                timeout=20,
+                headers={"User-Agent": "JOB-AUTOMATION/1.0"},
+            )
             r.raise_for_status()
             items = r.json()
         except (requests.RequestException, ValueError):
