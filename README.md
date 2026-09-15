@@ -4,7 +4,9 @@ Production-oriented job discovery, matching, application-preparation and trackin
 
 ## Live web application
 
-One Render Web Service serves the FastAPI backend and the web dashboard from the same origin.
+One Render Web Service now runs a **Next.js 16 frontend + FastAPI backend** together in Docker. The frontend is a futuristic career command center inspired by the supplied visual reference: dark glass cards, cyan/blue/purple gradients, orbital/globe visuals, AI assistant, job metrics, portal strip, goal progress and activity feed.
+
+The frontend uses the modern Next.js App Router, React 19, Tailwind CSS v4, Motion, Lucide and shadcn-style open-code UI primitives. The visual effects are independently implemented for JOB-AUTOMATION rather than copying another site's proprietary CSS/source/assets.
 
 The first visit shows **Login / Create account**. New users complete an onboarding profile with:
 
@@ -17,6 +19,29 @@ The first visit shows **Login / Create account**. New users complete an onboardi
 - Education and graduation information
 
 The profile is stored per user in Neon PostgreSQL and drives screening/ranking.
+
+## Frontend architecture
+
+```text
+frontend/
+  app/
+    page.tsx          # Dashboard, jobs, portals, applications, RAG, globe, analytics, settings
+    layout.tsx
+    globals.css       # Futuristic responsive design system
+  components/ui/
+    button.tsx
+    card.tsx
+  lib/utils.ts
+
+Next.js 16.3.3
+React 19.2
+Tailwind CSS 4
+Motion 12
+Lucide React
+shadcn/ui-compatible components.json
+```
+
+Next.js rewrites `/api/*` and `/health` to the private FastAPI process on `127.0.0.1:8000`, so authentication cookies, Neon data, CV upload and all existing API behavior stay on the same origin.
 
 ## Android app (Capacitor)
 
@@ -45,11 +70,11 @@ cd android
 ./gradlew assembleDebug
 ```
 
-The mobile UI is responsive for phones and tablets, including the StartupMap-inspired global job explorer, country/location filters, job cards, dashboard, portals, applications, RAG/resume and settings screens.
+The mobile UI is responsive for phones and tablets, including the futuristic dashboard, global job explorer, job cards, portals, applications, RAG/resume and settings screens.
 
 ## All Jobs
 
-The **All Jobs** page now supports:
+The **Job Search** page supports:
 
 - All jobs
 - Internship only
@@ -58,13 +83,13 @@ The **All Jobs** page now supports:
 - Contract only
 - Match-score filtering
 - Portal/source filtering
-- Keyword search across title, company, description and match reasons
+- Keyword search across title, company and location
 
 Employment type is stored with each job and can be filtered without changing the saved jobs.
 
 ## CV / Resume storage
 
-Every signed-in user can upload a CV from **Settings** or **RAG / Resume**.
+Every signed-in user can upload a CV from **AI Resume (RAG)** or **Settings**.
 
 Supported formats:
 
@@ -138,7 +163,7 @@ User login
    -> profile-aware match score
    -> Neon PostgreSQL
    -> portal/source cards
-   -> All Jobs filters
+   -> Job Search filters
    -> job detail cards
    -> application review queue
    -> human approval
@@ -172,11 +197,28 @@ Optional source configuration:
 
 The system is approval-first. It can prepare resumes, cover letters, application answers and form data, but it must not bypass CAPTCHA, authentication, anti-bot controls or legal declarations, and it must not invent candidate information. Sensitive questions stop for human review.
 
-## Run locally
+## Run locally — full stack
+
+### Docker
+
+```bash
+docker build -t job-automation .
+docker run --env-file .env -p 3000:3000 job-automation
+```
+
+Open `http://127.0.0.1:3000`.
+
+### Frontend development
+
+```bash
+npm install
+npm run dev:web
+```
+
+The Next.js development server runs on port 3000 and rewrites `/api/*` to a FastAPI server on port 8000. Start the backend separately:
 
 ```bash
 pip install -r requirements.txt
 uvicorn web.app:app --host 127.0.0.1 --port 8000
 ```
 
-Then open `http://127.0.0.1:8000`.
