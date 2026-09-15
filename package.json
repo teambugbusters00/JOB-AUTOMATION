@@ -1,6 +1,6 @@
 {
   "name": "job-automation",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "private": true,
   "description": "JOB-AUTOMATION — Next.js career operating system with FastAPI + Neon backend",
   "scripts": {
@@ -14,7 +14,7 @@
   "dependencies": {
     "@base-ui/react": "^1.8.0",
     "@capacitor/core": "^7.4.3",
-    "cn": "^0.1.0",
+    "cn": "^0.3.0",
     "lucide-react": "^1.46.0",
     "motion": "^13.2.0",
     "next": "16.3.3",
