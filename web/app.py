@@ -18,10 +18,13 @@ from job_agent.models import dedupe, india_eligible, normalize
 from .security import SESSION_COOKIE, hash_password, verify_password, new_session
 
 BASE = Path(__file__).resolve().parent
-app = FastAPI(title="JOB-AUTOMATION API", version="2.2.0")
+NEXT_OUT = BASE / "next"
+app = FastAPI(title="JOB-AUTOMATION API", version="2.3.0")
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "*").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+if (NEXT_OUT / "_next").exists():
+    app.mount("/_next", StaticFiles(directory=NEXT_OUT / "_next"), name="next-assets")
 
 ADMIN_COOKIE = "job_admin_session"
 ADMIN_SESSION_DAYS = 8
@@ -81,11 +84,14 @@ def extract_cv_text(filename: str, content_type: str, data: bytes) -> str:
     return ""
 
 @app.get("/", include_in_schema=False)
-def root(): return FileResponse(BASE / "index.html")
+def root():
+    next_index = NEXT_OUT / "index.html"
+    return FileResponse(next_index if next_index.exists() else BASE / "index.html")
+
 @app.get("/admin", include_in_schema=False)
 def admin_root(): return FileResponse(BASE / "admin.html")
 @app.get("/api")
-def api_info() -> dict[str, Any]: return {"name":"JOB-AUTOMATION API","status":"ok","version":"2.2.0","timestamp":datetime.now(timezone.utc).isoformat()}
+def api_info() -> dict[str, Any]: return {"name":"JOB-AUTOMATION API","status":"ok","version":"2.3.0","timestamp":datetime.now(timezone.utc).isoformat()}
 @app.get("/health")
 def health():
     repo=db()
@@ -248,3 +254,12 @@ def admin_delete_user(user_id:int,job_admin_session:str|None=Cookie(default=None
     current_admin(job_admin_session); deleted=require_db().delete_user(user_id)
     if not deleted: raise HTTPException(404,"User not found")
     return {"status":"deleted","user":dict(deleted)}
+
+@app.get("/{asset_path:path}", include_in_schema=False)
+def frontend_asset(asset_path: str):
+    if asset_path.startswith("api/") or asset_path.startswith("static/") or asset_path == "admin":
+        raise HTTPException(404, "Not found")
+    candidate = (NEXT_OUT / asset_path).resolve()
+    if not str(candidate).startswith(str(NEXT_OUT.resolve())) or not candidate.is_file():
+        raise HTTPException(404, "Not found")
+    return FileResponse(candidate)
