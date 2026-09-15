@@ -19,8 +19,10 @@ RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 RUN npm run build:web \
+  && test -f frontend/out/index.html \
   && rm -rf web/next \
-  && cp -r frontend/out web/next
+  && cp -r frontend/out web/next \
+  && test -f web/next/index.html
 
 EXPOSE 10000
 CMD ["sh", "docker/start.sh"]
