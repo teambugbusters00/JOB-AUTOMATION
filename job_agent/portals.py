@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from urllib.parse import urljoin
-import re
-import xml.etree.ElementTree as ET
 import json
+import re
+import time
+import xml.etree.ElementTree as ET
 
 import requests
 from bs4 import BeautifulSoup
@@ -36,6 +37,11 @@ PORTALS = [
     Portal("ashby", "Ashby", "https://www.ashbyhq.com/", "api", "Public Ashby job-board feeds; default boards are included and can be overridden with ASHBY_BOARDS."),
 ]
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; JOB-AUTOMATION/2.2; +https://job-automation-8nm3.onrender.com)",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
 
 def portal_cards() -> list[dict]:
     return [p.__dict__ for p in PORTALS]
@@ -53,6 +59,45 @@ def _job_type(text: str) -> str:
     return "full-time"
 
 
+def _get(url: str, timeout: int = 25) -> requests.Response:
+    last = None
+    for attempt in range(3):
+        try:
+            r = requests.get(url, timeout=timeout, headers=HEADERS, allow_redirects=True)
+            r.raise_for_status()
+            return r
+        except requests.RequestException as exc:
+            last = exc
+            if attempt < 2:
+                time.sleep(0.8 * (attempt + 1))
+    raise last or RuntimeError("request failed")
+
+
+def _xml_items(root: ET.Element):
+    # Supports RSS and Atom feeds, including namespaced XML.
+    for item in root.iter():
+        tag = item.tag.rsplit("}", 1)[-1].lower()
+        if tag in {"item", "entry"}:
+            yield item
+
+
+def _xml_text(item: ET.Element, names: tuple[str, ...]) -> str:
+    for child in item.iter():
+        tag = child.tag.rsplit("}", 1)[-1].lower()
+        if tag in names and (child.text or "").strip():
+            return _clean(child.text or "")
+    return ""
+
+
+def _xml_link(item: ET.Element) -> str:
+    for child in item.iter():
+        tag = child.tag.rsplit("}", 1)[-1].lower()
+        if tag == "link":
+            href = child.attrib.get("href") or child.text or ""
+            if href.strip(): return href.strip()
+    return ""
+
+
 def collect_startup_jobs(max_per_feed: int = 50) -> list[Job]:
     jobs: list[Job] = []
     feeds = [
@@ -61,13 +106,14 @@ def collect_startup_jobs(max_per_feed: int = 50) -> list[Job]:
         "https://startup.jobs/feeds/jobs?role=data",
     ]
     for feed in feeds:
-        r = requests.get(feed, timeout=20, headers={"User-Agent": "JOB-AUTOMATION/1.0"})
-        r.raise_for_status()
-        root = ET.fromstring(r.text)
-        for item in root.findall(".//item")[:max_per_feed]:
-            title = _clean(item.findtext("title", ""))
-            link = _clean(item.findtext("link", ""))
-            desc = BeautifulSoup(item.findtext("description", ""), "html.parser").get_text(" ", strip=True)
+        try:
+            root = ET.fromstring(_get(feed, 20).content)
+        except (ET.ParseError, requests.RequestException):
+            continue
+        for item in list(_xml_items(root))[:max_per_feed]:
+            title = _xml_text(item, ("title",))
+            link = _xml_link(item)
+            desc = BeautifulSoup(_xml_text(item, ("description", "summary", "content")), "html.parser").get_text(" ", strip=True)
             if not title or not link: continue
             jobs.append(Job(title=title, company="Startup Jobs", location="Global", remote="remote" if "remote" in (title+desc).lower() else "", url=link, source="Startup Jobs", description=desc, employment_type=_job_type(title+desc)))
     return jobs
@@ -81,12 +127,10 @@ def _jsonld_jobs(soup: BeautifulSoup, page_url: str, source: str, limit: int) ->
         except Exception:
             continue
         candidates = data if isinstance(data, list) else data.get("itemListElement", []) if isinstance(data, dict) else []
-        if isinstance(data, dict) and data.get("@type") == "JobPosting":
-            candidates = [data]
+        if isinstance(data, dict) and data.get("@type") == "JobPosting": candidates = [data]
         for item in candidates:
             if isinstance(item, dict) and isinstance(item.get("item"), dict): item = item["item"]
-            if not isinstance(item, dict): continue
-            if item.get("@type") != "JobPosting": continue
+            if not isinstance(item, dict) or item.get("@type") != "JobPosting": continue
             title = _clean(str(item.get("title", "")))
             link = urljoin(page_url, str(item.get("url", "")))
             desc = BeautifulSoup(str(item.get("description", "")), "html.parser").get_text(" ", strip=True)
@@ -101,12 +145,10 @@ def _jsonld_jobs(soup: BeautifulSoup, page_url: str, source: str, limit: int) ->
 
 
 def collect_public_html(url: str, source: str, limit: int = 80) -> list[Job]:
-    r = requests.get(url, timeout=25, headers={"User-Agent": "Mozilla/5.0 JOB-AUTOMATION/1.0"})
-    r.raise_for_status()
+    r = _get(url)
     soup = BeautifulSoup(r.text, "html.parser")
     out: list[Job] = _jsonld_jobs(soup, url, source, limit)
     seen: set[str] = {j.url for j in out}
-    # Public-page extraction only. No login/session automation or CAPTCHA bypass.
     for a in soup.find_all("a", href=True):
         href = urljoin(url, a.get("href"))
         text = _clean(a.get_text(" ", strip=True))
@@ -123,28 +165,15 @@ def collect_public_html(url: str, source: str, limit: int = 80) -> list[Job]:
     return out
 
 
-def collect_topstartups(limit: int = 80) -> list[Job]:
-    return collect_public_html("https://topstartups.io/jobs/", "Top Startups", limit)
-
-
-def collect_thehub(limit: int = 80) -> list[Job]:
-    return collect_public_html("https://thehub.io/jobs", "The Hub", limit)
-
-
-def collect_workinstartups(limit: int = 80) -> list[Job]:
-    return collect_public_html("https://workinstartups.com/", "Work in Startups", limit)
-
-
-def collect_startupmap(limit: int = 80) -> list[Job]:
-    return collect_public_html("https://startupmap.one/jobs", "StartupMap", limit)
+def collect_topstartups(limit: int = 80) -> list[Job]: return collect_public_html("https://topstartups.io/jobs/", "Top Startups", limit)
+def collect_thehub(limit: int = 80) -> list[Job]: return collect_public_html("https://thehub.io/jobs", "The Hub", limit)
+def collect_workinstartups(limit: int = 80) -> list[Job]: return collect_public_html("https://workinstartups.com/", "Work in Startups", limit)
+def collect_startupmap(limit: int = 80) -> list[Job]: return collect_public_html("https://startupmap.one/jobs", "StartupMap", limit)
 
 
 def collect_public_portals() -> list[Job]:
     jobs: list[Job] = []
-    collectors = [collect_startup_jobs, collect_topstartups, collect_thehub, collect_workinstartups, collect_startupmap]
-    for collector in collectors:
-        try:
-            jobs.extend(collector())
-        except Exception as exc:
-            print(f"portal_collector={collector.__name__} failed={type(exc).__name__}")
+    for collector in [collect_startup_jobs, collect_topstartups, collect_thehub, collect_workinstartups, collect_startupmap]:
+        try: jobs.extend(collector())
+        except Exception as exc: print(f"portal_collector={collector.__name__} failed={type(exc).__name__}")
     return jobs
